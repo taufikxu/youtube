@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=1 python inference.py --output_file=Results/DbofModel/predictions.csv --input_data_pattern='/mfs/shiyu/yt8m/test/test*' --train_dir='Results/DbofModel/' --frame_features=True --feature_names="rgb" --feature_sizes="1024" --batch_size=128 --num_readers=10
