@@ -1,0 +1,7 @@
+#! /usr/bin/env bash
+
+python inference.py --output_file=$1/predictions.csv \
+    --input_data_pattern='/mfs/shiyu/yt8m/test/test*' \
+    --train_dir=$1 --frame_features=True --feature_names="rgb" \
+    --batch_size 128 --feature_size="1024"
+
