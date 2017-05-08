@@ -18,6 +18,10 @@ import tensorflow as tf
 import utils
 
 from tensorflow import logging
+from tensorflow import flags
+flags.DEFINE_boolean("crop", False, 'whether crop the input into length 40')
+FLAGS = flags.FLAGS
+
 def resize_axis(tensor, axis, new_size, fill_value=0):
   """Truncates or pads a tensor to new_size on on a given axis.
 
@@ -188,6 +192,13 @@ class YT8MFrameFeatureReader(BaseReader):
                                       max_quantized_value,
                                       min_quantized_value)
     feature_matrix = resize_axis(feature_matrix, 0, max_frames)
+    if FLAGS.crop is True:
+        ind = tf.multinomial(tf.log([[1.]*10]), 1)[0, 0]
+        index = tf.range(ind, 225+ind, 5)
+        feature_matrix = tf.reshape(tf.gather(feature_matrix, index), [45, int(feature_matrix.shape[-1])])
+        num_frames = tf.constant(45.)
+        print(index, feature_matrix, num_frames)
+
     return feature_matrix, num_frames
 
   def prepare_reader(self,

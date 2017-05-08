@@ -1,4 +1,6 @@
 #! /usr/bin/env bash
 
-model=FrameLevelLogisticModel
-python train.py --model=$model --train_data_pattern="/mfs/shiyu/yt8m/train/train*" --train_dir="./Results/$model" --frame_features=True --feature_names="rgb" --batch_size 64
+model=$1
+python train.py --model=$model --train_data_pattern="/mfs/shiyu/yt8m/train/train*" \
+    --train_dir="./Results/$model$2" --frame_features=True --feature_names="rgb, audio" \
+    --batch_size 128 --feature_size="1024, 128" --base_learning_rate=0.001 ${@:3}
