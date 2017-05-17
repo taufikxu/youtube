@@ -234,3 +234,29 @@ class LstmModel(models.BaseModel):
         model_input=state[-1].h,
         vocab_size=vocab_size,
         **unused_params)
+
+class temporal_conv(models.BaseModel):
+
+    def create_model(selfself, model_input,
+                     vocab_size, num_frames, **unused_params):
+        x = model_input
+        with tf.variable_scope("model"):
+            x = tf.layers.conv1d(x, 1024, 1, padding='same')
+            x = tf.layers.conv1d(x, 1024, 5, padding='valid')
+            x = tf.layers.conv1d(x, int(1024 * 1.3), 5, padding='valid')
+            x = tf.layers.conv1d(x, int(1024 * 1.3), 5, padding='valid')
+            x = tf.layers.conv1d(x, int(1024 * 1.5), 5, padding='valid')
+            x = tf.layers.conv1d(x, int(1024 * 1.5), 5, padding='valid')
+            x = tf.layers.conv1d(x, int(1024 * 1.7), 5, padding='valid')
+            x = tf.layers.conv1d(x, int(1024 * 1.7), 5, padding='valid')
+            x = tf.layers.conv1d(x, int(1024 * 1.9), 5, padding='valid')
+            x = tf.layers.conv1d(x, int(1024 * 1.9), 5, padding='valid')
+            x = tf.layers.conv1d(x, int(1024 * 2), 5, padding='valid')
+            x = tf.layers.conv1d(x, int(1024 * 2), 5, padding='valid')
+            x = tf.reshape(x, (-1, 2048))
+            aggregated_model = getattr(video_level_models,
+                                       FLAGS.video_level_classifier_model)
+            return aggregated_model().create_model(
+                model_input=x,
+                vocab_size=vocab_size,
+                **unused_params)
