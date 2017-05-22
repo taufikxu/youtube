@@ -86,7 +86,7 @@ if __name__ == "__main__":
                        "halting training.")
   flags.DEFINE_integer("max_steps", None,
                        "The maximum number of iterations of the training loop.")
-  flags.DEFINE_integer("export_model_steps", 1000,
+  flags.DEFINE_integer("export_model_steps", 10000,
                        "The period, in number of steps, with which the model "
                        "is exported for batch prediction.")
 
@@ -266,6 +266,7 @@ def build_graph(reader,
     with tf.device(device_string % i):
       with (tf.variable_scope(("tower"), reuse=True if i > 0 else None)):
         with (slim.arg_scope([slim.model_variable, slim.variable], device="/cpu:0" if num_gpus!=1 else "/gpu:0")):
+          print(i, num_gpus)
           result = model.create_model(
             tower_inputs[i],
             num_frames=tower_num_frames[i],
