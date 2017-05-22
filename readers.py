@@ -200,7 +200,7 @@ class YT8MFrameFeatureReader(BaseReader):
             ind = int(self.start_index)
         index = tf.range(ind, 225+ind, 5)
         feature_matrix = tf.reshape(tf.gather(feature_matrix, index), [45, int(feature_matrix.shape[-1])])
-        num_frames = tf.constant(45.)
+        num_frames = tf.constant(45, dtype=tf.int32)
         print(index, feature_matrix, num_frames)
 
     return feature_matrix, num_frames

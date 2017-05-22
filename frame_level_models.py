@@ -242,16 +242,14 @@ class temporal_conv(models.BaseModel):
         x = model_input
         with tf.variable_scope("model"):
             x = tf.layers.conv1d(x, 1024, 1, padding='same')
-            x = tf.layers.conv1d(x, 1024, 5, padding='valid')
-            x = tf.layers.conv1d(x, int(1024 * 1.3), 5, padding='valid')
-            x = tf.layers.conv1d(x, int(1024 * 1.3), 5, padding='valid')
-            x = tf.layers.conv1d(x, int(1024 * 1.5), 5, padding='valid')
-            x = tf.layers.conv1d(x, int(1024 * 1.5), 5, padding='valid')
-            x = tf.layers.conv1d(x, int(1024 * 1.7), 5, padding='valid')
-            x = tf.layers.conv1d(x, int(1024 * 1.7), 5, padding='valid')
-            x = tf.layers.conv1d(x, int(1024 * 1.9), 5, padding='valid')
-            x = tf.layers.conv1d(x, int(1024 * 1.9), 5, padding='valid')
-            x = tf.layers.conv1d(x, int(1024 * 2), 5, padding='valid')
+            x = tf.layers.conv1d(x, 1024, 5, padding='same')
+            x = tf.layers.max_pooling1d(x, 3, 3)
+            x = tf.layers.conv1d(x, int(1024 * 1.3), 5, padding='same')
+            x = tf.layers.conv1d(x, int(1024 * 1.5), 5, padding='same')
+            x = tf.layers.conv1d(x, int(1024 * 1.7), 5, padding='same')
+            x = tf.layers.conv1d(x, int(1024 * 1.9), 5, padding='same')
+            x = tf.layers.max_pooling1d(x, 3, 3)
+            x = tf.layers.conv1d(x, int(1024 * 2), 5, padding='same')
             x = tf.layers.conv1d(x, int(1024 * 2), 5, padding='valid')
             x = tf.reshape(x, (-1, 2048))
             aggregated_model = getattr(video_level_models,
@@ -260,3 +258,53 @@ class temporal_conv(models.BaseModel):
                 model_input=x,
                 vocab_size=vocab_size,
                 **unused_params)
+
+class BiLstmModel(models.BaseModel):
+
+  def create_model(self, model_input, vocab_size, num_frames, **unused_params):
+    """Creates a model which uses a stack of LSTMs to represent the video.
+
+    Args:
+      model_input: A 'batch_size' x 'max_frames' x 'num_features' matrix of
+                   input features.
+      vocab_size: The number of classes in the dataset.
+      num_frames: A vector of length 'batch' which indicates the number of
+           frames for each video (before padding).
+
+    Returns:
+      A dictionary with a tensor containing the probability predictions of the
+      model in the 'predictions' key. The dimensions of the tensor are
+      'batch_size' x 'num_classes'.
+    """
+    lstm_size = FLAGS.lstm_cells
+    number_of_layers = FLAGS.lstm_layers
+
+    stacked_lstm_fw = list(
+            [
+                tf.contrib.rnn.BasicLSTMCell(
+                    lstm_size, forget_bias=1.0)
+                for _ in range(number_of_layers)
+                ])
+    stacked_lstm_bw = list(
+            [
+                tf.contrib.rnn.BasicLSTMCell(
+                    lstm_size, forget_bias=1.0)
+                for _ in range(number_of_layers)
+                ])
+
+
+    loss = 0.0
+
+    outputs, state, _ = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(stacked_lstm_fw, stacked_lstm_bw, model_input,
+                                       sequence_length=num_frames,
+                                       dtype=tf.float32)
+
+    aggregated_model = getattr(video_level_models,
+                               FLAGS.video_level_classifier_model)
+
+    return aggregated_model().create_model(
+        model_input=state[-1].h,
+        vocab_size=vocab_size,
+        **unused_params)
+
+
