@@ -145,7 +145,7 @@ class YT8MFrameFeatureReader(BaseReader):
                num_classes=4716,
                feature_sizes=[1024],
                feature_names=["inc3"],
-               max_frames=300):
+               max_frames=300, start_index=None):
     """Construct a YT8MFrameFeatureReader.
 
     Args:
@@ -163,6 +163,7 @@ class YT8MFrameFeatureReader(BaseReader):
     self.feature_sizes = feature_sizes
     self.feature_names = feature_names
     self.max_frames = max_frames
+    self.start_index = start_index
 
   def get_video_matrix(self,
                        features,
@@ -193,7 +194,10 @@ class YT8MFrameFeatureReader(BaseReader):
                                       min_quantized_value)
     feature_matrix = resize_axis(feature_matrix, 0, max_frames)
     if FLAGS.crop is True:
-        ind = tf.multinomial(tf.log([[1.]*10]), 1)[0, 0]
+        if self.start_index is None:
+            ind = tf.multinomial(tf.log([[1.]*10]), 1)[0, 0]
+        else:
+            ind = int(self.start_index)
         index = tf.range(ind, 225+ind, 5)
         feature_matrix = tf.reshape(tf.gather(feature_matrix, index), [45, int(feature_matrix.shape[-1])])
         num_frames = tf.constant(45.)

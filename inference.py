@@ -176,7 +176,8 @@ def main(unused_argv):
 
   if FLAGS.frame_features:
     reader = readers.YT8MFrameFeatureReader(feature_names=feature_names,
-                                            feature_sizes=feature_sizes)
+                                            feature_sizes=feature_sizes,
+                                            start_index=0)
   else:
     reader = readers.YT8MAggregatedFeatureReader(feature_names=feature_names,
                                                  feature_sizes=feature_sizes)
