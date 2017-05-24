@@ -18,6 +18,10 @@ import tensorflow as tf
 import utils
 
 from tensorflow import logging
+from tensorflow import flags
+flags.DEFINE_boolean("crop", False, 'whether crop the input into length 40')
+FLAGS = flags.FLAGS
+
 def resize_axis(tensor, axis, new_size, fill_value=0):
   """Truncates or pads a tensor to new_size on on a given axis.
 
@@ -141,7 +145,7 @@ class YT8MFrameFeatureReader(BaseReader):
                num_classes=4716,
                feature_sizes=[1024],
                feature_names=["inc3"],
-               max_frames=300):
+               max_frames=60):
     """Construct a YT8MFrameFeatureReader.
 
     Args:
@@ -158,7 +162,10 @@ class YT8MFrameFeatureReader(BaseReader):
     self.num_classes = num_classes
     self.feature_sizes = feature_sizes
     self.feature_names = feature_names
-    self.max_frames = max_frames
+    if FLAGS.crop:
+      self.max_frames = 60
+    else:
+      self.max_frames = 300
 
   def get_video_matrix(self,
                        features,
@@ -182,6 +189,14 @@ class YT8MFrameFeatureReader(BaseReader):
     decoded_features = tf.reshape(
         tf.cast(tf.decode_raw(features, tf.uint8), tf.float32),
         [-1, feature_size])
+
+    if FLAGS.crop:
+      ind = tf.multinomial(tf.log([[1.]*6]), 1)[0, 0]
+      length_local = tf.shape(decoded_features, out_type=tf.int64)[0]
+      start_idx = tf.minimum(ind, length_local - 1)
+      index = tf.range(start_idx, length_local, 6)
+      decoded_features = tf.reshape(tf.gather(decoded_features, index), [-1, feature_size])
+
 
     num_frames = tf.minimum(tf.shape(decoded_features)[0], max_frames)
     feature_matrix = utils.Dequantize(decoded_features,

@@ -100,6 +100,9 @@ if __name__ == "__main__":
       "log_device_placement", False,
       "Whether to write the device on which every op will run into the "
       "logs on startup.")
+  flags.DEFINE_bool(
+      "is_finetune", False,
+      "whether to restore parameters but (likely) train a different graph")
 
 def validate_class_name(flag_value, category, modules, expected_superclass):
   """Checks that the given string matches a class of the expected type.
@@ -378,15 +381,19 @@ class Trainer(object):
     target, device_fn = self.start_server_if_distributed()
 
     meta_filename = self.get_meta_filename(start_new_model, self.train_dir)
+    is_finetune = FLAGS.is_finetune
 
     with tf.Graph().as_default() as graph:
 
-      if meta_filename:
+      if meta_filename and not is_finetune:
         saver = self.recover_model(meta_filename)
 
       with tf.device(device_fn):
         if not meta_filename:
           saver = self.build_model(self.model, self.reader)
+        if meta_filename and is_finetune:
+          saver = self.build_model(self.model, self.reader)
+          saver_pre = tf.train.Saver()
 
         global_step = tf.get_collection("global_step")[0]
         loss = tf.get_collection("loss")[0]
@@ -409,6 +416,10 @@ class Trainer(object):
     with sv.managed_session(target, config=self.config) as sess:
       try:
         logging.info("%s: Entering training loop.", task_as_string(self.task))
+        if is_finetune:
+          saver_pre.restore(sess, meta_filename[:-5])
+          logging.info("Restored needed parameters for finetuning.")
+
         while (not sv.should_stop()) and (not self.max_steps_reached):
           batch_start_time = time.time()
           _, global_step_val, loss_val, predictions_val, labels_val = sess.run(
@@ -555,6 +566,7 @@ class Trainer(object):
                  num_readers=FLAGS.num_readers,
                  batch_size=FLAGS.batch_size,
                  num_epochs=FLAGS.num_epochs)
+    logging.info("Called build_model(). Built a new graph.")
 
     return tf.train.Saver(max_to_keep=0, keep_checkpoint_every_n_hours=0.75)
 

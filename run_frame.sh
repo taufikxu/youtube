@@ -1,4 +1,2 @@
-#! /usr/bin/env bash
-
 model=LstmModel
-CUDA_VISIBLE_DEVICES=0 python train.py --model=$model --train_data_pattern="/mfs/shiyu/yt8m/train/train*" --train_dir=./Results/$model --frame_features=True --feature_names="rgb, audio" --feature_sizes="1024, 128" --batch_size 128  --base_learning_rate 0.001 --num_epochs 7 --export_model_steps 20000 --clip_gradient_norm 4
+CUDA_VISIBLE_DEVICES=0 python -u train.py --model=LstmModel --train_data_pattern="/home/yinpeng/yt8m/train/*.tfrecord" --train_dir=./Results/LstmTry1 --frame_features=True --feature_names="rgb, audio" --feature_sizes="1024, 128" --batch_size=128 --num_epochs=3 --export_model_steps=50000 --clip_gradient_norm=7 --crop=True --num_readers=1 #--is_finetune=True --regularization_penalty=1 #--dropout=True #--video_level_classifier_model=MLPModel

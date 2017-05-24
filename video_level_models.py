@@ -26,6 +26,8 @@ FLAGS = flags.FLAGS
 flags.DEFINE_integer(
     "moe_num_mixtures", 2,
     "The number of mixtures (excluding the dummy 'expert') used for MoeModel.")
+flags.DEFINE_bool("dropout", False,
+                  "Adds dropout to the classifier input.")
 
 class LogisticModel(models.BaseModel):
   """Logistic model with L2 regularization."""
@@ -44,6 +46,30 @@ class LogisticModel(models.BaseModel):
     output = slim.fully_connected(
         model_input, vocab_size, activation_fn=tf.nn.sigmoid,
         weights_regularizer=slim.l2_regularizer(l2_penalty))
+    return {"predictions": output}
+
+class MLPModel(models.BaseModel):
+  """Logistic model with L2 regularization."""
+
+  def create_model(self, model_input, vocab_size, hidden_size=1024, l2_penalty=1e-8, **unused_params):
+    """Creates a logistic model.
+
+    Args:
+      model_input: 'batch' x 'num_features' matrix of input features.
+      vocab_size: The number of classes in the dataset.
+      hidden_size: The number of hidden units in the hidden layer(s)
+
+    Returns:
+      A dictionary with a tensor containing the probability predictions of the
+      model in the 'predictions' key. The dimensions of the tensor are
+      batch_size x num_classes."""
+
+    hidden1 = slim.fully_connected(model_input, hidden_size, activation_fn=tf.nn.relu6, weights_regularizer=slim.l2_regularizer(l2_penalty))
+
+    output = slim.fully_connected(
+        hidden1, vocab_size, activation_fn=tf.nn.sigmoid,
+        weights_regularizer=slim.l2_regularizer(l2_penalty))
+    print("Built MLP classifier.")
     return {"predictions": output}
 
 class MoeModel(models.BaseModel):
@@ -74,6 +100,10 @@ class MoeModel(models.BaseModel):
       batch_size x num_classes.
     """
     num_mixtures = num_mixtures or FLAGS.moe_num_mixtures
+
+    if FLAGS.dropout:
+      model_input = tf.nn.dropout(model_input, keep_prob=0.8)
+      print("Applied dropout to classifier input.")
 
     gate_activations = slim.fully_connected(
         model_input,

@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=3 python eval.py --eval_data_pattern='/home/yinpeng/yt8m/train/train*' --train_dir='Results/LstmModel/' --frame_features=True --feature_names="rgb, audio" --feature_sizes="1024, 128" --batch_size=512 --model=LstmModel --run_once=True #--label_loss=
