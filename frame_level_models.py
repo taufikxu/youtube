@@ -298,12 +298,13 @@ class BiLstmModel(models.BaseModel):
     outputs, state, _ = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(stacked_lstm_fw, stacked_lstm_bw, model_input,
                                        sequence_length=num_frames,
                                        dtype=tf.float32)
+    features = 0.33 * outputs[:, 44, 0:lstm_size] + 0.33 * outputs[:, 29, 0:lstm_size] + 0.33 * outputs[:, 44, 0:lstm_size]
 
     aggregated_model = getattr(video_level_models,
                                FLAGS.video_level_classifier_model)
 
     return aggregated_model().create_model(
-        model_input=state[-1].h,
+        model_input=features,
         vocab_size=vocab_size,
         **unused_params)
 

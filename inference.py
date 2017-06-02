@@ -53,6 +53,8 @@ if __name__ == '__main__':
   flags.DEFINE_integer(
       "batch_size", 8192,
       "How many examples to process per batch.")
+  flags.DEFINE_integer(
+      "start_index", 0, "startindex")
   flags.DEFINE_string("feature_names", "mean_rgb", "Name of the feature "
                       "to use for training.")
   flags.DEFINE_string("feature_sizes", "1024", "Length of the feature vectors.")
@@ -177,7 +179,7 @@ def main(unused_argv):
   if FLAGS.frame_features:
     reader = readers.YT8MFrameFeatureReader(feature_names=feature_names,
                                             feature_sizes=feature_sizes,
-                                            start_index=0)
+                                            start_index=FLAGS.start_index)
   else:
     reader = readers.YT8MAggregatedFeatureReader(feature_names=feature_names,
                                                  feature_sizes=feature_sizes)
