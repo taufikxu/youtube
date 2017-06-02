@@ -19,7 +19,9 @@ import utils
 
 from tensorflow import logging
 from tensorflow import flags
-flags.DEFINE_boolean("crop", False, 'whether crop the input into length 40')
+flags.DEFINE_boolean("crop", False, 'whether crop the input')
+flags.DEFINE_integer("crop_interval", 5, 'interval to crop the input')
+flags.DEFINE_boolean("is25", False, 'whether concurrent 25 LSTMs')
 FLAGS = flags.FLAGS
 
 def resize_axis(tensor, axis, new_size, fill_value=0):
@@ -163,9 +165,15 @@ class YT8MFrameFeatureReader(BaseReader):
     self.feature_sizes = feature_sizes
     self.feature_names = feature_names
     if FLAGS.crop:
-      self.max_frames = 60
+      self.max_frames = int(300 / FLAGS.crop_interval)
     else:
       self.max_frames = 300
+
+    if FLAGS.is25:
+      import pickle
+      with open('./vertical/index_res.pkl', 'rb') as f:
+        res = pickle.load(f)
+      self.gather_labels = res['gather_labels']
 
   def get_video_matrix(self,
                        features,
@@ -190,11 +198,13 @@ class YT8MFrameFeatureReader(BaseReader):
         tf.cast(tf.decode_raw(features, tf.uint8), tf.float32),
         [-1, feature_size])
 
+    interval = FLAGS.crop_interval
+
     if FLAGS.crop:
-      ind = tf.multinomial(tf.log([[1.]*6]), 1)[0, 0]
+      ind = tf.multinomial(tf.log([[1.]*interval]), 1)[0, 0]
       length_local = tf.shape(decoded_features, out_type=tf.int64)[0]
       start_idx = tf.minimum(ind, length_local - 1)
-      index = tf.range(start_idx, length_local, 6)
+      index = tf.range(start_idx, length_local, interval)
       decoded_features = tf.reshape(tf.gather(decoded_features, index), [-1, feature_size])
 
 
@@ -203,6 +213,22 @@ class YT8MFrameFeatureReader(BaseReader):
                                       max_quantized_value,
                                       min_quantized_value)
     feature_matrix = resize_axis(feature_matrix, 0, max_frames)
+
+    # Kun crop
+    # if FLAGS.crop:
+
+    #     ind = tf.multinomial(tf.log([[1.]*10]), 1)[0, 0]
+
+    #     index = tf.range(ind, 225+ind, 5)
+
+    #     feature_matrix = tf.reshape(tf.gather(feature_matrix, index), [45, int(feature_matrix.shape[-1])])
+
+    #     num_frames = tf.constant(45, dtype=tf.int32)
+
+    #     print(index, feature_matrix, num_frames)
+
+
+
     return feature_matrix, num_frames
 
   def prepare_reader(self,
@@ -244,6 +270,10 @@ class YT8MFrameFeatureReader(BaseReader):
             validate_indices=False),
         tf.bool))
 
+    if FLAGS.is25:
+      print(self.gather_labels)
+      labels = tf.gather(labels, indices=self.gather_labels)
+
     # loads (potentially) different types of features and concatenates them
     num_features = len(self.feature_names)
     assert num_features > 0, "No feature selected: feature_names is empty!"
@@ -283,3 +313,72 @@ class YT8MFrameFeatureReader(BaseReader):
 
     return batch_video_ids, batch_video_matrix, batch_labels, batch_frames
 
+
+  def prepare_reader_unsupervised(self,
+                     filename_queue,
+                     max_quantized_value=2,
+                     min_quantized_value=-2):
+    reader = tf.TFRecordReader()
+    _, serialized_example = reader.read(filename_queue)
+
+    return self.prepare_serialized_examples_unsupervised(serialized_example,
+        max_quantized_value, min_quantized_value)
+
+  def prepare_serialized_examples_unsupervised(self, serialized_example,
+      max_quantized_value=2, min_quantized_value=-2):
+
+    contexts, features = tf.parse_single_sequence_example(
+        serialized_example,
+        context_features={"video_id": tf.FixedLenFeature(
+            [], tf.string),
+                          "labels": tf.VarLenFeature(tf.int64)},
+        sequence_features={
+            feature_name : tf.FixedLenSequenceFeature([], dtype=tf.string)
+            for feature_name in self.feature_names
+        })
+
+    # read ground truth labels
+    # labels = (tf.cast(
+    #     tf.sparse_to_dense(contexts["labels"].values, (self.num_classes,), 1,
+    #         validate_indices=False),
+    #     tf.bool))
+
+    # loads rgb and audio, view audio as target
+    num_features = len(self.feature_names)
+    assert num_features == 2, "rbg and audio not simultaneously specified!"
+
+    assert len(self.feature_names) == len(self.feature_sizes), \
+    "length of feature_names (={}) != length of feature_sizes (={})".format( \
+    len(self.feature_names), len(self.feature_sizes))
+
+    feature_matrix_rgb, num_frames_rgb = self.get_video_matrix(
+        features[self.feature_names[0]],
+        self.feature_sizes[0],
+        self.max_frames,
+        max_quantized_value,
+        min_quantized_value)
+    assert self.feature_sizes[0] == 1024, "This feature should be rgb!"
+
+    feature_matrix_audio, num_frames_audio = self.get_video_matrix(
+        features[self.feature_names[1]],
+        self.feature_sizes[1],
+        self.max_frames,
+        max_quantized_value,
+        min_quantized_value)
+    assert self.feature_sizes[1] == 128, "This feature should be audio!"
+
+    tf.assert_equal(num_frames_rgb, num_frames_audio)
+
+    # cap the number of frames at self.max_frames
+    num_frames = tf.minimum(num_frames_rgb, self.max_frames)
+
+
+    # convert to batch format.
+    # TODO: Do proper batch reads to remove the IO bottleneck.
+    batch_video_ids = tf.expand_dims(contexts["video_id"], 0)
+    batch_rgb_matrix = tf.expand_dims(feature_matrix_rgb, 0)
+    batch_audio_matrix = tf.expand_dims(feature_matrix_audio, 0)
+    # batch_labels = tf.expand_dims(labels, 0)
+    batch_frames = tf.expand_dims(num_frames, 0)
+
+    return batch_video_ids, batch_rgb_matrix, batch_audio_matrix, batch_frames

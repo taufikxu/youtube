@@ -51,6 +51,59 @@ class CrossEntropyLoss(BaseLoss):
       return tf.reduce_mean(tf.reduce_sum(cross_entropy_loss, 1))
 
 
+class CrossEntropyLossSample(BaseLoss):
+  """Calculate the cross entropy loss between the predictions and labels.
+  """
+
+  def calculate_loss(self, original_predictions, labels, **unused_params):
+    with tf.name_scope("loss_xent"):
+      epsilon = 10e-6
+      float_labels = tf.cast(labels, tf.float32)
+
+      cond = tf.logical_and(tf.equal(float_labels, 0.), tf.less(original_predictions, 0.15))
+      predictions = tf.where(cond, tf.zeros(labels.get_shape()), original_predictions)
+      tf.add_to_collection('loss_related', tf.cast(cond, tf.float32))
+      tf.add_to_collection('loss_related', tf.cast(tf.equal(float_labels, 0.), tf.float32))
+      tf.add_to_collection('loss_related', tf.cast(tf.less(original_predictions, 0.15), tf.float32))
+      tf.add_to_collection('loss_related', original_predictions)
+      tf.add_to_collection('loss_related', predictions)
+
+      cross_entropy_loss = float_labels * tf.log(predictions + epsilon) + (
+          1 - float_labels) * tf.log(1 - predictions + epsilon)
+      cross_entropy_loss = tf.negative(cross_entropy_loss)
+      return tf.reduce_mean(tf.reduce_sum(cross_entropy_loss, 1))
+
+
+class CrossEntropyLossMat(BaseLoss):
+  """Calculate the cross entropy loss between the predictions and labels.
+  """
+
+  def calculate_loss(self, original_predictions, labels, **unused_params):
+    with tf.name_scope("loss_xent"):
+      epsilon = 10e-6
+      float_labels = tf.cast(labels, tf.float32)
+
+      cond = tf.logical_or(tf.not_equal(float_labels, 0.), tf.greater(original_predictions, 0.2))
+      cond = tf.cast(cond, tf.float32)
+      predictions = original_predictions * cond
+
+      cross_entropy_loss = float_labels * tf.log(predictions + epsilon) + (
+          1 - float_labels) * tf.log(1 - predictions + epsilon)
+      cross_entropy_loss = tf.negative(cross_entropy_loss)
+      return tf.reduce_mean(tf.reduce_sum(cross_entropy_loss, 1))
+
+
+class MSELoss(BaseLoss):
+  """Calculate the mean squared error loss between the regressions and targets.
+  """
+
+  def calculate_loss(self, predictions, labels, **unused_params):
+    # predictions and labels are real-valued, for regression
+    with tf.name_scope("mse"):
+
+      return tf.losses.mean_squared_error(labels=labels, predictions=predictions)      
+
+
 class HingeLoss(BaseLoss):
   """Calculate the hinge loss between the predictions and labels.
 

@@ -1,0 +1,25 @@
+(Unknown) 204
+Arts & Entertainment 711
+Autos & Vehicles 500
+Beauty & Fitness 100
+Books & Literature 43
+Business & Industrial 296
+Computers & Electronics 340
+Finance 14
+Food & Drink 325
+Games 896
+Health 16
+Hobbies & Leisure 152
+Home & Garden 135
+Internet & Telecom 34
+Jobs & Education 17
+Law & Government 46
+News 21
+People & Society 62
+Pets & Animals 178
+Real Estate 8
+Reference 58
+Science 154
+Shopping 137
+Sports 207
+Travel 62

@@ -55,12 +55,6 @@ if __name__ == "__main__":
       "Otherwise, --train_data_pattern must be aggregated video-level "
       "features. The model must also be set appropriately (i.e. to read 3D "
       "batches VS 4D batches.")
-  flags.DEFINE_bool(
-      "late_fusion", False,
-      "If set, then --train_data_pattern must be frame-level features. "
-      "Otherwise, --train_data_pattern must be aggregated video-level "
-      "features. The model must also be set appropriately (i.e. to read 3D "
-      "batches VS 4D batches.")
   flags.DEFINE_string(
       "model", "LogisticModel",
       "Which architecture to use for the model. Models are defined "
@@ -171,7 +165,7 @@ def get_input_data_tensors(reader,
     filename_queue = tf.train.string_input_producer(
         files, num_epochs=num_epochs, shuffle=True)
     training_data = [
-        reader.prepare_reader(filename_queue) for _ in range(num_readers)
+        reader.prepare_reader_unsupervised(filename_queue) for _ in range(num_readers)
     ]
 
     return tf.train.shuffle_batch_join(
@@ -249,26 +243,22 @@ def build_graph(reader,
   tf.summary.scalar('learning_rate', learning_rate)
 
   optimizer = optimizer_class(learning_rate)
-  unused_video_id, model_input_raw, labels_batch, num_frames = (
+  unused_video_id, model_input_rgb_raw, target_audio_raw, num_frames = (
       get_input_data_tensors(
           reader,
           train_data_pattern,
           batch_size=batch_size * num_towers,
           num_readers=num_readers,
           num_epochs=num_epochs))
-  tf.summary.histogram("model/input_raw", model_input_raw)
+  tf.summary.histogram("model/input_raw", model_input_rgb_raw)
 
-  feature_dim = len(model_input_raw.get_shape()) - 1
+  feature_dim = len(model_input_rgb_raw.get_shape()) - 1
 
-  if FLAGS.late_fusion:
-    input_list = tf.split(model_input_raw, [1024, 128], axis=2)
-    input_list = [tf.nn.l2_normalize(tmp, feature_dim) for tmp in input_list]
-    model_input = tf.concat(input_list, axis=2)
-  else:
-    model_input = tf.nn.l2_normalize(model_input_raw, feature_dim)
+  model_input = tf.nn.l2_normalize(model_input_rgb_raw, feature_dim) # TODO: normalize audio?
+  target_audio = tf.nn.l2_normalize(target_audio_raw, feature_dim)
 
   tower_inputs = tf.split(model_input, num_towers)
-  tower_labels = tf.split(labels_batch, num_towers)
+  tower_labels = tf.split(target_audio, num_towers)
   tower_num_frames = tf.split(num_frames, num_towers)
   tower_gradients = []
   tower_predictions = []
@@ -341,10 +331,10 @@ def build_graph(reader,
   tf.add_to_collection("global_step", global_step)
   tf.add_to_collection("loss", label_loss)
   tf.add_to_collection("predictions", tf.concat(tower_predictions, 0))
-  tf.add_to_collection("input_batch_raw", model_input_raw)
+  tf.add_to_collection("input_batch_raw", model_input_rgb_raw)
   tf.add_to_collection("input_batch", model_input)
   tf.add_to_collection("num_frames", num_frames)
-  tf.add_to_collection("labels", tf.cast(labels_batch, tf.float32))
+  tf.add_to_collection("labels", tf.cast(target_audio_raw, tf.float32))
   tf.add_to_collection("train_op", train_op)
 
 
@@ -412,7 +402,6 @@ class Trainer(object):
         labels = tf.get_collection("labels")[0]
         train_op = tf.get_collection("train_op")[0]
         init_op = tf.global_variables_initializer()
-        loss_related = tf.get_collection('loss_related')
 
     sv = tf.train.Supervisor(
         graph,
@@ -442,7 +431,7 @@ class Trainer(object):
           if self.max_steps and self.max_steps <= global_step_val:
             self.max_steps_reached = True
 
-          if self.is_master and global_step_val % 10 == 0 and self.train_dir:
+          if False and self.is_master and global_step_val % 10 == 0 and self.train_dir:
             eval_start_time = time.time()
             hit_at_one = eval_util.calculate_hit_at_one(predictions_val, labels_val)
             perr = eval_util.calculate_precision_at_equal_recall_rate(predictions_val,
@@ -478,7 +467,7 @@ class Trainer(object):
               self.last_model_export_step = global_step_val
           else:
             logging.info("training step " + str(global_step_val) + " | Loss: " +
-              ("%.2f" % loss_val) + " Examples/sec: " + ("%.2f" % examples_per_second))
+              ("%.2f" % (100.0 * loss_val)) + ", Examples this batch: " + str(labels_val.shape[0]) + ", Examples/sec: " + ("%.2f" % examples_per_second))
       except tf.errors.OutOfRangeError:
         logging.info("%s: Done training -- epoch limit reached.",
                      task_as_string(self.task))
@@ -683,6 +672,7 @@ def main(unused_argv):
 
   elif task.type == "ps":
     ParameterServer(cluster, task).run()
+    print("------Started parameter server!!!")
   else:
     raise ValueError("%s: Invalid task_type: %s." %
                      (task_as_string(task), task.type))

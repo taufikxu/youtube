@@ -234,3 +234,248 @@ class LstmModel(models.BaseModel):
         model_input=state[-1].h,
         vocab_size=vocab_size,
         **unused_params)
+
+class BiLstmModel(models.BaseModel):
+
+  def create_model(self, model_input, vocab_size, num_frames, **unused_params):
+    """Creates a model which uses a stack of LSTMs to represent the video.
+    Args:
+      model_input: A 'batch_size' x 'max_frames' x 'num_features' matrix of
+                   input features.
+      vocab_size: The number of classes in the dataset.
+      num_frames: A vector of length 'batch' which indicates the number of
+           frames for each video (before padding).
+    Returns:
+      A dictionary with a tensor containing the probability predictions of the
+      model in the 'predictions' key. The dimensions of the tensor are
+      'batch_size' x 'num_classes'.
+    """
+
+    stacked_lstm_fw = [tf.contrib.rnn.LayerNormBasicLSTMCell(1024, reuse=tf.get_variable_scope().reuse), tf.contrib.rnn.LayerNormBasicLSTMCell(768, reuse=tf.get_variable_scope().reuse)]
+
+    stacked_lstm_bw = [tf.contrib.rnn.LayerNormBasicLSTMCell(1024, reuse=tf.get_variable_scope().reuse), tf.contrib.rnn.LayerNormBasicLSTMCell(768, reuse=tf.get_variable_scope().reuse)]
+
+    outputs, state_fw, state_bw = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(stacked_lstm_fw, stacked_lstm_bw, model_input, sequence_length=num_frames, dtype=tf.float32)
+
+    aggregated_model = getattr(video_level_models,
+                               FLAGS.video_level_classifier_model)
+
+    final_feature = tf.concat([state_fw[-1].h, state_bw[-1].h], axis=1)
+
+    return aggregated_model().create_model(
+        model_input=final_feature,
+        vocab_size=vocab_size,
+        **unused_params)
+
+class LstmModel_late(models.BaseModel):
+
+  def create_model(self, model_input, vocab_size, num_frames, **unused_params):
+    """Creates a model which uses a stack of LSTMs to represent the video.
+
+    Args:
+      model_input: A 'batch_size' x 'max_frames' x 'num_features' matrix of
+                   input features.
+      vocab_size: The number of classes in the dataset.
+      num_frames: A vector of length 'batch' which indicates the number of
+           frames for each video (before padding).
+
+    Returns:
+      A dictionary with a tensor containing the probability predictions of the
+      model in the 'predictions' key. The dimensions of the tensor are
+      'batch_size' x 'num_classes'.
+    """
+
+
+    model_input_list = tf.split(model_input, [1024, 128], axis=2)
+    with tf.variable_scope('rgb_lstm'):
+      rgb_lstm_fw = tf.contrib.rnn.LayerNormBasicLSTMCell(512, forget_bias=1.0, reuse=tf.get_variable_scope().reuse)
+      rgb_lstm_bw = tf.contrib.rnn.LayerNormBasicLSTMCell(512, forget_bias=1.0, reuse=tf.get_variable_scope().reuse)
+      outputs_rgb, _, _ = tf.contrib.rnn.stack_bidirectional_dynamic_rnn([rgb_lstm_fw], [rgb_lstm_bw], model_input_list[0], sequence_length=num_frames, dtype=tf.float32)
+    with tf.variable_scope('audio_lstm'):
+      audio_lstm_fw = tf.contrib.rnn.LayerNormBasicLSTMCell(150, forget_bias=1.0, reuse=tf.get_variable_scope().reuse)
+      audio_lstm_bw = tf.contrib.rnn.LayerNormBasicLSTMCell(150, forget_bias=1.0, reuse=tf.get_variable_scope().reuse)
+      outputs_audio, _, _ = tf.contrib.rnn.stack_bidirectional_dynamic_rnn([audio_lstm_fw], [audio_lstm_bw], model_input_list[1], sequence_length=num_frames, dtype=tf.float32)
+
+    outputs_hidden = tf.concat([outputs_rgb, outputs_audio], axis=2)
+    with tf.variable_scope('hidden_lstm'):
+      hidden_lstm = tf.contrib.rnn.LayerNormBasicLSTMCell(1200, forget_bias=1.0, reuse=tf.get_variable_scope().reuse)
+      outputs, state = tf.nn.dynamic_rnn(hidden_lstm, outputs_hidden,
+                                       sequence_length=num_frames,
+                                       dtype=tf.float32)
+
+    aggregated_model = getattr(video_level_models,
+                               FLAGS.video_level_classifier_model)
+
+    return aggregated_model().create_model(
+        model_input=state.h,
+        vocab_size=vocab_size,
+        **unused_params)
+
+class LstmModel_un(models.BaseModel):
+
+  def create_model(self, model_input, vocab_size, num_frames, **unused_params):
+    """Creates a model which uses a stack of LSTMs to represent the video.
+
+    Args:
+      model_input: A 'batch_size' x 'max_frames' x 'num_features' matrix of
+                   input features.
+      vocab_size: The number of classes in the dataset.
+      num_frames: A vector of length 'batch' which indicates the number of
+           frames for each video (before padding).
+
+    Returns:
+      A dictionary with a tensor containing the probability predictions of the
+      model in the 'predictions' key. The dimensions of the tensor are
+      'batch_size' x 'num_classes'.
+    """
+    lstm_size = 1024
+    decoder_audio_size = 1200 # don't want to use BiLSTM for decoder
+
+    stacked_fw = [tf.contrib.rnn.BasicLSTMCell(lstm_size, forget_bias=1.0, reuse=tf.get_variable_scope().reuse) for _ in range(2)]
+    stacked_bw = [tf.contrib.rnn.BasicLSTMCell(lstm_size, forget_bias=1.0, reuse=tf.get_variable_scope().reuse) for _ in range(2)]
+
+    output_blstm, state_fw, state_bw = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(stacked_fw, stacked_bw, model_input, sequence_length=num_frames, dtype=tf.float32)
+
+
+    decode_cell = tf.contrib.rnn.BasicLSTMCell(decoder_audio_size, forget_bias=1.0, reuse=tf.get_variable_scope().reuse)
+    output_decoder_audio, state_decoder_audio = tf.nn.dynamic_rnn(decode_cell, output_blstm,
+                                       sequence_length=num_frames,
+                                       dtype=tf.float32)
+
+
+    regress_weights =  tf.get_variable("regress_weights",
+      [decoder_audio_size, 128],
+      initializer=tf.random_normal_initializer(stddev=1 / math.sqrt(lstm_size * 2)))
+    regress_biases = tf.get_variable("regress_biases",
+        [128],
+        initializer = tf.random_normal_initializer(stddev=0.01))
+
+    output_decoder_audio_list = tf.split(output_decoder_audio, output_decoder_audio.get_shape().as_list()[1], axis=1)
+    output_decoder_audio_list = [tf.squeeze(tmp, axis=1) for tmp in output_decoder_audio_list]
+    output_list = [tf.nn.xw_plus_b(tmp, regress_weights, regress_biases) for tmp in output_decoder_audio_list]
+    output_list = [tf.expand_dims(tmp, axis=1) for tmp in output_list]
+
+    outputs = tf.concat(output_list, axis=1)
+
+class LstmModel_ae(models.BaseModel):
+
+  def create_model(self, model_input, vocab_size, num_frames, **unused_params):
+    """Creates a model which uses a stack of LSTMs to represent the video.
+
+    Args:
+      model_input: A 'batch_size' x 'max_frames' x 'num_features' matrix of
+                   input features.
+      vocab_size: The number of classes in the dataset.
+      num_frames: A vector of length 'batch' which indicates the number of
+           frames for each video (before padding).
+
+    Returns:
+      A dictionary with a tensor containing the probability predictions of the
+      model in the 'predictions' key. The dimensions of the tensor are
+      'batch_size' x 'num_classes'.
+    """
+    lstm_size = 800
+    # decoder_audio_size = 1200 # more like auto-encoder
+
+    stacked_fw = [tf.contrib.rnn.BasicLSTMCell(lstm_size, forget_bias=1.0, reuse=tf.get_variable_scope().reuse) for _ in range(3)]
+    stacked_bw = [tf.contrib.rnn.BasicLSTMCell(lstm_size, forget_bias=1.0, reuse=tf.get_variable_scope().reuse) for _ in range(3)]
+    stacked_fw.append(tf.contrib.rnn.BasicLSTMCell(128, forget_bias=1.0, reuse=tf.get_variable_scope().reuse))
+    stacked_bw.append(tf.contrib.rnn.BasicLSTMCell(128, forget_bias=1.0, reuse=tf.get_variable_scope().reuse))
+
+    outputs, state_fw, state_bw = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(stacked_fw, stacked_bw, model_input, sequence_length=num_frames, dtype=tf.float32)
+
+    output_list = tf.split(outputs, 2, axis=2)
+    outputs = tf.add_n(output_list)
+    print(outputs)
+
+
+    return {"predictions": outputs}
+
+class LstmModel_ae_1152(models.BaseModel):
+
+  def create_model(self, model_input, vocab_size, num_frames, **unused_params):
+    """Creates a model which uses a stack of LSTMs to represent the video.
+
+    Args:
+      model_input: A 'batch_size' x 'max_frames' x 'num_features' matrix of
+                   input features.
+      vocab_size: The number of classes in the dataset.
+      num_frames: A vector of length 'batch' which indicates the number of
+           frames for each video (before padding).
+
+    Returns:
+      A dictionary with a tensor containing the probability predictions of the
+      model in the 'predictions' key. The dimensions of the tensor are
+      'batch_size' x 'num_classes'.
+    """
+    lstm_size = 500
+    # decoder_audio_size = 1200 # more like auto-encoder
+
+    stacked_fw = [tf.contrib.rnn.BasicLSTMCell(lstm_size, forget_bias=1.0, reuse=tf.get_variable_scope().reuse) for _ in range(3)]
+    stacked_bw = [tf.contrib.rnn.BasicLSTMCell(lstm_size, forget_bias=1.0, reuse=tf.get_variable_scope().reuse) for _ in range(3)]
+    stacked_fw.append(tf.contrib.rnn.BasicLSTMCell(1152, forget_bias=1.0, reuse=tf.get_variable_scope().reuse))
+    stacked_bw.append(tf.contrib.rnn.BasicLSTMCell(1152, forget_bias=1.0, reuse=tf.get_variable_scope().reuse))
+
+    outputs, state_fw, state_bw = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(stacked_fw, stacked_bw, model_input, sequence_length=num_frames, dtype=tf.float32)
+
+    output_list = tf.split(outputs, 2, axis=2)
+    outputs = tf.add_n(output_list)
+    print(outputs)
+
+
+    return {"predictions": outputs}
+
+class BiLstm25Model(models.BaseModel):
+
+  def create_model(self, model_input, vocab_size, num_frames, **unused_params):
+    """Creates a model which uses a stack of LSTMs to represent the video.
+    Args:
+      model_input: A 'batch_size' x 'max_frames' x 'num_features' matrix of
+                   input features.
+      vocab_size: The number of classes in the dataset.
+      num_frames: A vector of length 'batch' which indicates the number of
+           frames for each video (before padding).
+    Returns:
+      A dictionary with a tensor containing the probability predictions of the
+      model in the 'predictions' key. The dimensions of the tensor are
+      'batch_size' x 'num_classes'.
+    """
+
+    import pickle
+    with open('./vertical/index_res.pkl', 'rb') as f:
+      res = pickle.load(f)
+
+    lstm_sizes = res['lstm_sizes']
+    vertical_sizes = res['vertical_sizes']
+    gather_indices = res['gather_indices']
+    print(lstm_sizes)
+
+
+    outputs_list = []
+
+    for i in xrange(25):
+      with tf.variable_scope('vertical' + str(i)):
+        stacked_lstm_fw = [tf.contrib.rnn.LayerNormBasicLSTMCell(size, reuse=tf.get_variable_scope().reuse) for size in lstm_sizes[i]]
+
+        stacked_lstm_bw = [tf.contrib.rnn.LayerNormBasicLSTMCell(size, reuse=tf.get_variable_scope().reuse) for size in lstm_sizes[i]]
+
+        _, state_fw, state_bw = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(stacked_lstm_fw, stacked_lstm_bw, model_input, sequence_length=num_frames, dtype=tf.float32)
+
+        aggregated_model = getattr(video_level_models,
+                                   FLAGS.video_level_classifier_model)
+
+        final_feature = tf.concat([state_fw[-1].h, state_bw[-1].h], axis=1)
+
+        
+        outputs_list.append(aggregated_model().create_model(
+            model_input=final_feature,
+            vocab_size=vertical_sizes[i],
+            **unused_params)['predictions'])
+
+
+    # outputs = tf.transpose(tf.concat(outputs_list, axis=1))
+    # outputs = tf.gather(outputs, indices=gather_indices)
+    # outputs = tf.transpose(outputs)
+    outputs = tf.concat(outputs_list, axis=1)
+
+    return {"predictions": outputs}

@@ -55,12 +55,6 @@ if __name__ == "__main__":
       "Otherwise, --train_data_pattern must be aggregated video-level "
       "features. The model must also be set appropriately (i.e. to read 3D "
       "batches VS 4D batches.")
-  flags.DEFINE_bool(
-      "late_fusion", False,
-      "If set, then --train_data_pattern must be frame-level features. "
-      "Otherwise, --train_data_pattern must be aggregated video-level "
-      "features. The model must also be set appropriately (i.e. to read 3D "
-      "batches VS 4D batches.")
   flags.DEFINE_string(
       "model", "LogisticModel",
       "Which architecture to use for the model. Models are defined "
@@ -260,15 +254,10 @@ def build_graph(reader,
 
   feature_dim = len(model_input_raw.get_shape()) - 1
 
-  if FLAGS.late_fusion:
-    input_list = tf.split(model_input_raw, [1024, 128], axis=2)
-    input_list = [tf.nn.l2_normalize(tmp, feature_dim) for tmp in input_list]
-    model_input = tf.concat(input_list, axis=2)
-  else:
-    model_input = tf.nn.l2_normalize(model_input_raw, feature_dim)
+  model_input = tf.nn.l2_normalize(model_input_raw, feature_dim)
 
   tower_inputs = tf.split(model_input, num_towers)
-  tower_labels = tf.split(labels_batch, num_towers)
+  tower_labels = tf.split(model_input, num_towers)
   tower_num_frames = tf.split(num_frames, num_towers)
   tower_gradients = []
   tower_predictions = []
@@ -412,7 +401,6 @@ class Trainer(object):
         labels = tf.get_collection("labels")[0]
         train_op = tf.get_collection("train_op")[0]
         init_op = tf.global_variables_initializer()
-        loss_related = tf.get_collection('loss_related')
 
     sv = tf.train.Supervisor(
         graph,
@@ -442,7 +430,7 @@ class Trainer(object):
           if self.max_steps and self.max_steps <= global_step_val:
             self.max_steps_reached = True
 
-          if self.is_master and global_step_val % 10 == 0 and self.train_dir:
+          if False and self.is_master and global_step_val % 10 == 0 and self.train_dir:
             eval_start_time = time.time()
             hit_at_one = eval_util.calculate_hit_at_one(predictions_val, labels_val)
             perr = eval_util.calculate_precision_at_equal_recall_rate(predictions_val,
@@ -478,7 +466,7 @@ class Trainer(object):
               self.last_model_export_step = global_step_val
           else:
             logging.info("training step " + str(global_step_val) + " | Loss: " +
-              ("%.2f" % loss_val) + " Examples/sec: " + ("%.2f" % examples_per_second))
+              ("%.2f" % (1e4 * loss_val)) + " Examples/sec: " + ("%.2f" % examples_per_second))
       except tf.errors.OutOfRangeError:
         logging.info("%s: Done training -- epoch limit reached.",
                      task_as_string(self.task))
